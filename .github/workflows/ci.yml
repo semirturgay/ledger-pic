@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# The workflow only reads the repo; no job can push, comment or publish with the token.
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+        env:
+          POSTGRES_USER: ledgerpic
+          POSTGRES_PASSWORD: ledgerpic
+          POSTGRES_DB: ledgerpic
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ledgerpic" --health-interval 2s --health-timeout 5s --health-retries 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      JWT_SECRET: ci-only-secret-0123456789abcdefghijklmnop
+      DATABASE_URL: postgresql+psycopg://ledgerpic:ledgerpic@localhost:5432/ledgerpic
+      PGPASSWORD: ledgerpic
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.11.32" # same uv as the Dockerfile
+          enable-cache: true
+      - name: Install (exactly as locked)
+        run: uv sync --locked
+      - name: Lint (unused code, likely bugs, redundancy; rules in pyproject.toml)
+        run: uv run ruff check .
+      - name: Type check (mypy strict; settings in pyproject.toml)
+        run: uv run mypy
+      - name: Migrations apply cleanly and roll back
+        run: uv run alembic upgrade head && uv run alembic downgrade base && uv run alembic upgrade head
+      - name: Tests against Postgres
+        run: |
+          createdb -h localhost -U ledgerpic ledgerpic_test
+          uv run pytest -q  # Postgres only; defaults to the ledgerpic_test database
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint # ESLint: Next.js + typescript-eslint rules, unused code, no warnings allowed
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
