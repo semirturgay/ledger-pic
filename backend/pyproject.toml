@@ -1,0 +1,63 @@
+[project]
+name = "ledgerpic-backend"
+version = "0.1.0"
+description = "LedgerPic API and extraction worker"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.13",
+    "pydantic[email]>=2.7",
+    "pydantic-settings>=2.3",
+    "pyjwt>=2.8",
+    "argon2-cffi>=23.1",
+    "python-multipart>=0.0.9",
+    "pillow>=10.4",
+    "google-genai>=2.0",
+    "anthropic>=2.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[tool.uv]
+# An application, not a library: install dependencies only.
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 130
+
+[tool.ruff.lint]
+# Unused code (F, ARG), likely bugs (B), redundancy (SIM, RET, PIE, C4), modern syntax (UP), sorted imports (I).
+select = ["F", "ARG", "B", "SIM", "RET", "PIE", "C4", "UP", "I"]
+ignore = [
+    "E501",  # long lines: the formatter's business, not the linter's
+    "B008",  # FastAPI's Depends(...) / Query(...) defaults are the framework's idiom
+]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest fixtures are requested by parameter name and often not used in the test body.
+"tests/*" = ["ARG001"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["app"]
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unreachable = true
+# The app runs on Linux (prctl, seccomp, Landlock, os.O_PATH); check against Linux stubs on any host.
+platform = "linux"
