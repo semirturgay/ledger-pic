@@ -6,8 +6,8 @@ Take a photo of a receipt. A vision model reads the merchant, date, currency, li
 
 | | |
 |---|---|
-| **Live app** | `TODO: https://<your-app>.vercel.app` |
-| **Backend** | `TODO: cloud URL, or "local + tunnel" (see below)` |
+| **Live app** | https://ledger-pic.vercel.app |
+| **Backend** | https://ledgerpic-api.onrender.com on Render's free tier, Postgres on Neon ([deploy](#deploy)). It sleeps when idle: the first request can take about a minute. |
 | **Demo video** | `TODO: link` |
 | **Repository** | https://github.com/semirturgay/ledger-pic |
 | **Test account** | Sign up on the login page with any email and a password of 8+ characters. |
@@ -294,8 +294,8 @@ samples/                 two test receipts
 ## Submission checklist
 
 - [x] Repo link
-- [ ] Live Vercel URL
-- [ ] Backend location (cloud URL, or "local + tunnel" with start command)
+- [x] Live Vercel URL
+- [x] Backend location (cloud URL, or "local + tunnel" with start command)
 - [x] Test account or sign-up instructions
 - [x] Vision model used and where images are stored
 - [x] Structured-output enforcement and bad-JSON handling documented
