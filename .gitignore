@@ -1,0 +1,29 @@
+.env
+.env.local
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+.idea/
+.DS_Store
+
+# Challenge brief is marked confidential; keep it out of the public repo.
+FULLSTACK_CHALLENGE_*.pdf
+
+# Local-only test credentials
+*.local.md
+
+# Key material never belongs in the repo.
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
