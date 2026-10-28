@@ -34,7 +34,8 @@ services:
       - key: TURNSTILE_HOSTNAMES
         sync: false
       # Requests reach the app through Cloudflare, Render's load balancer (private addresses) and a proxy
-      # inside the container (loopback: without it every visitor looks like 127.0.0.1). uvicorn walks X-Forwarded-For from the right past these and takes the first other address, so a
+      # inside the container (loopback: without it every visitor looks like 127.0.0.1). uvicorn walks
+      # X-Forwarded-For from the right past these and takes the first other address, so a
       # client-supplied header can't choose the IP the rate limits see. Never '*'.
       - key: FORWARDED_ALLOW_IPS
         value: >-
