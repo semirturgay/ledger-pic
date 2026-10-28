@@ -1422,3 +1422,18 @@ async def test_every_foreign_key_column_is_indexed():
     """)
     async with engine.connect() as conn:
         assert (await conn.execute(query)).all() == []
+
+
+def test_single_container_gives_each_process_only_its_secrets():
+    from app.single_container import environments
+
+    env = {"JWT_SECRET": "real-signing-key", "TURNSTILE_SECRET_KEY": "ts", "GEMINI_API_KEY": "g", "CLAUDE_API_KEY": "c", "PORT": "1"}
+    migrate, api, worker = environments(env)
+
+    assert api["JWT_SECRET"] == "real-signing-key" and api["TURNSTILE_SECRET_KEY"] == "ts"
+    assert "GEMINI_API_KEY" not in api and "CLAUDE_API_KEY" not in api
+    assert worker["GEMINI_API_KEY"] == "g" and worker["CLAUDE_API_KEY"] == "c"
+    for env_without_signing in (migrate, worker):
+        assert env_without_signing["JWT_SECRET"] != "real-signing-key" and env_without_signing["TURNSTILE_SECRET_KEY"] == ""
+    assert "GEMINI_API_KEY" not in migrate and "CLAUDE_API_KEY" not in migrate
+    assert all(e["PORT"] == "1" for e in (migrate, api, worker))

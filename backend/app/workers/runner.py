@@ -3,8 +3,6 @@ Postgres NOTIFY; they also poll every WORKER_POLL_SECONDS (jittered), which cove
 SIGTERM lets running jobs finish."""
 
 import asyncio
-import contextlib
-import ctypes
 import logging
 import random
 import signal
@@ -13,6 +11,7 @@ from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
 from app.core.config import settings
 from app.core.logging import configure_logging
+from app.core.process import make_undumpable
 from app.db.session import engine
 from app.services.extraction import ReceiptExtractor
 from app.workers.extraction_job import prune_usage_log, purge_rejected_uploads, run_job
@@ -70,15 +69,8 @@ class Worker:
         self.wake.set()
 
 
-def _undumpable() -> None:
-    """Linux: make /proc/<worker>/environ and /mem readable by root only, so the image-decoding child
-    (same user) can't read the worker's API keys even if a hostile file took it over."""
-    with contextlib.suppress(AttributeError, OSError):  # not Linux
-        ctypes.CDLL(None).prctl(4, 0, 0, 0, 0)  # PR_SET_DUMPABLE = 4
-
-
 async def main() -> None:
-    _undumpable()
+    make_undumpable()  # the image-decoding child runs as the same user
     configure_logging(settings.log_level)
     worker = Worker(ReceiptExtractor.from_settings(settings))  # one model client, shared by all loops
 

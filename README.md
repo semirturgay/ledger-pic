@@ -229,12 +229,15 @@ npm test                # unit tests for pure helpers
 
 **Frontend on Vercel:** import the repo, set **Root Directory** to `frontend`, and set `NEXT_PUBLIC_API_URL` to the backend URL. Then add the Vercel URL to the backend's `CORS_ORIGINS`.
 
-**Backend, option A: a cloud Docker host** (Render, Railway, Fly.io). Deploy `backend/Dockerfile` as two services from the same image:
+**Backend, option A: Render free tier + Neon Postgres** (what the live app uses). [`render.yaml`](render.yaml) is a Render Blueprint for one free Docker web service. Render's free tier has no background workers, so the container runs [`app/single_container.py`](backend/app/single_container.py): migrations, then the API and the worker side by side. The API still never sees the model keys, and the worker never sees the token-signing key. Postgres is on Neon, because Render's free database is deleted after 30 days.
 
-- **API:** the default command (uvicorn on `$PORT`).
-- **Worker:** `python -m app.workers`, run directly, not through a shell that stays running. The host needs Linux 5.13+ for the image sandbox.
+1. **Neon:** create a project in AWS Frankfurt (eu-central-1). Copy the **direct** connection string (Connection pooling off): the worker's `LISTEN` needs a real session, which Neon's pooler doesn't keep.
+2. **Render:** New → Blueprint → this repo. Fill in `DATABASE_URL` (from Neon), `EXTRACTION_PROVIDER` plus its key, `CORS_ORIGINS` (the Vercel URL), and the Turnstile secret and hostname. `JWT_SECRET` is generated for you.
+3. **Vercel** (below), then put its URL into `CORS_ORIGINS` on Render.
 
-Attach a managed Postgres, set the [environment variables](docs/configuration.md) on both, and run `alembic upgrade head` as a release step.
+Free-tier trade-offs: the service sleeps after 15 idle minutes, so the first visit waits about a minute while it wakes. Receipts queued at that point are processed once it's up. The API, worker and image decoder share 512 MB, so the Blueprint runs 2 jobs at a time instead of 4.
+
+On a paid host, run the same image as two services instead: the default command for the API (uvicorn on `$PORT`), and `python -m app.workers` for the worker, run directly, not through a shell that stays running. Run `alembic upgrade head` as a release step. The image sandbox needs Linux 5.13+.
 
 **Backend, option B: your machine plus a Cloudflare tunnel.**
 
@@ -261,6 +264,7 @@ The code went through nine rounds of Cloudflare's [security-audit skill](https:/
 backend/
 ├── app/
 │   ├── main.py          app, middleware, routers
+│   ├── single_container.py  migrations + API + worker in one container (Render free tier)
 │   ├── api/             routes, dependencies (auth, services), error → HTTP mapping
 │   ├── services/        use cases: receipts, auth, extraction, prompts, images
 │   │   └── llm/         vision model providers (Gemini, Claude) behind one interface
