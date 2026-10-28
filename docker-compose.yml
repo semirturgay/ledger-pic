@@ -1,0 +1,129 @@
+services:
+  db:
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    environment:
+      POSTGRES_USER: ledgerpic
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ledgerpic
+    ports:
+      # Loopback only: for running the API, worker or tests on this machine. Never on the LAN.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgerpic -d ledgerpic"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  # One-shot: applies migrations, then exits. The API and worker wait for it to succeed,
+  # so a fresh `docker compose up` never runs against an empty schema.
+  migrate:
+    build: ./backend
+    command: ["alembic", "upgrade", "head"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://ledgerpic:${POSTGRES_PASSWORD}@db:5432/ledgerpic
+      # Only the worker calls the model: the keys aren't handed to this container at all.
+      GEMINI_API_KEY: ""
+      CLAUDE_API_KEY: ""
+      # Migrations never sign tokens or check CAPTCHAs.
+      JWT_SECRET: migrate-does-not-sign-tokens-0123456789
+      TURNSTILE_SECRET_KEY: ""
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      # Overrides DATABASE_URL from .env so the container reaches the db service.
+      DATABASE_URL: postgresql+psycopg://ledgerpic:${POSTGRES_PASSWORD}@db:5432/ledgerpic
+      # Requests published on 8000 arrive from Docker's gateway, never from a proxy, so their
+      # X-Forwarded-For is ignored. The only trusted proxy is the tunnel below, at a fixed address.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.28.0.10}
+      # Only the worker calls the model: the keys aren't handed to this container at all.
+      GEMINI_API_KEY: ""
+      CLAUDE_API_KEY: ""
+    # No Linux capabilities and no privilege gain: the app needs neither.
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    ports:
+      # This machine only by default. API_BIND=0.0.0.0 in .env to reach it from a phone on the same Wi-Fi.
+      - "${API_BIND:-127.0.0.1}:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # The web app on http://localhost:3000. NEXT_PUBLIC_* values are built into it, so changing them
+  # needs a rebuild: docker compose up -d --build frontend
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    read_only: true
+    tmpfs: ["/tmp", "/app/.next/cache"]
+    ports:
+      - "${API_BIND:-127.0.0.1}:3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Processes the extraction queue (receipts in `processing`). Scale with: docker compose up -d --scale worker=3
+  worker:
+    build: ./backend
+    command: ["python", "-m", "app.workers"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://ledgerpic:${POSTGRES_PASSWORD}@db:5432/ledgerpic
+      # The worker never signs or checks tokens: it doesn't get the real secret.
+      JWT_SECRET: worker-does-not-sign-tokens-0000000000000000
+      TURNSTILE_SECRET_KEY: ""
+    stop_grace_period: 11m  # let in-flight extractions finish on shutdown (longest job lease is ~11 min)
+    # No `init: true`: an init would be PID 1 as the same user, dumpable and holding this whole environment,
+    # where a compromised image decoder could read the API keys (/proc/1/environ). The worker is PID 1 and
+    # non-dumpable instead; it handles SIGTERM/SIGINT itself, and decoders can't fork, so nothing needs reaping.
+    # No Linux capabilities and no privilege gain: the app needs neither.
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Optional public URL for the local stack: docker compose --profile tunnel up -d, then
+  # docker compose logs tunnel prints the https://*.trycloudflare.com address. It runs on the compose
+  # network so the API sees each visitor's real address (forwarded by this container) and rate-limits
+  # them separately; a tunnel on the host would make everyone look like one address.
+  tunnel:
+    image: cloudflare/cloudflared:2026.9.1@sha256:b269e8abd07a5bf6f3f4be65d5050b2174eca89c56a0241a8ff32a16aec454e4
+    command: ["tunnel", "--no-autoupdate", "--url", "http://backend:8000"]
+    profiles: ["tunnel"]
+    networks:
+      default:
+        ipv4_address: 172.28.0.10
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+          # Containers get addresses from the upper half, so the tunnel's fixed .10 is never taken first.
+          ip_range: 172.28.0.128/25
+
+volumes:
+  pgdata:

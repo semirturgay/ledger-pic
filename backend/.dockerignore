@@ -1,0 +1,12 @@
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.env*
+**/.env*
+tests/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
